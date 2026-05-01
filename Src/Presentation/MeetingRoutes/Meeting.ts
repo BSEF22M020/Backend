@@ -44,9 +44,9 @@ if (!apiKey || !apiSecret) {
 
 const serverClient = new StreamClient(apiKey, apiSecret)
 
-const CV_MODULE_URL = "https://uncontingently-bonelike-alvaro.ngrok-free.dev" // replace this
+const CV_MODULE_URL = process.env.CV_MODULE_LINK || "https://uncontingently-bonelike-alvaro.ngrok-free.dev"
 
-const upload = multer({ dest: "uploads/" })
+const upload = multer({ storage: multer.memoryStorage() })  
 
 
 
@@ -210,38 +210,37 @@ MeetingRoute.post("/metrics", async (req: any, res) => {
 
 MeetingRoute.post("/upload", upload.single("video"), async (req, res) => {
   try {
-    // 1. Check file and user_id received
     if (!req.file || !req.body.user_id) {
       return res.status(400).json({ message: "Missing video or user_id" })
     }
 
-    const webmPath = req.file.path
-    const mp4Path  = path.join("uploads", `${req.file.filename}.mp4`)
+    // Convert buffer to mp4 in memory using a temp path in /tmp (Vercel allows /tmp)
+    const tmpWebm = path.join("/tmp", `${Date.now()}.webm`)
+    const tmpMp4  = path.join("/tmp", `${Date.now()}.mp4`)
+
+    fs.writeFileSync(tmpWebm, req.file.buffer)
 
     await new Promise<void>((resolve, reject) => {
-  ffmpeg(webmPath)
-    .output(mp4Path)
-    .videoCodec("libx264")
-    .on("end", () => resolve())         
-    .on("error", (err) => reject(err))  
-    .run()
-})
+      ffmpeg(tmpWebm)
+        .output(tmpMp4)
+        .videoCodec("libx264")
+        .on("end", () => resolve())
+        .on("error", (err) => reject(err))
+        .run()
+    })
 
-    // 3. Forward mp4 to CV module
     const form = new FormData()
     form.append("user_id", req.body.user_id)
     form.append("meeting_id", req.body.meeting_id)
-    form.append("video", fs.createReadStream(mp4Path), "face.mp4")
+    form.append("video", fs.createReadStream(tmpMp4), "face.mp4")
 
     const cvResponse = await axios.post(`${CV_MODULE_URL}/upload`, form, {
       headers: form.getHeaders(),
     })
 
-    // 4. Cleanup temp files
-    fs.unlinkSync(webmPath)
-    fs.unlinkSync(mp4Path)
+    fs.unlinkSync(tmpWebm)
+    fs.unlinkSync(tmpMp4)
 
-    // 5. Return CV response to frontend
     return res.status(200).json(cvResponse.data)
 
   } catch (error) {
