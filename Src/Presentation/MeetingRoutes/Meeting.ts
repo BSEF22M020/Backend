@@ -44,8 +44,7 @@ if (!apiKey || !apiSecret) {
 
 const serverClient = new StreamClient(apiKey, apiSecret)
 
-const CV_MODULE_URL = process.env.CV_MODULE_LINK || "https://uncontingently-bonelike-alvaro.ngrok-free.dev"
-
+const CV_MODULE_URL = "https://uncontingently-bonelike-alvaro.ngrok-free.dev" 
 const upload = multer({ storage: multer.memoryStorage() })  
 
 
@@ -342,22 +341,34 @@ MeetingRoute.post("/end", verifyUser, async (req, res) => {
         samples,
         deepSamples
       } = participant
+
+      console.log("Participant received :", participant)
+
       const avgAttention = samples > 0 ? attentionSum / samples : 0
       const avgGaze = samples > 0 ? gazeSum / samples : 0
       const avgFace = deepSamples > 0 ? faceSum / deepSamples : 0
+
       const meetingSession: MeetingParticipantDto = {
         id: Number(meetingId),
         userId: Number(userId),
         meetingId: Number(meetingId),
-        avgAttention: avgAttention,
-        avgFace: avgFace,
-        avgGaze: avgGaze,
-        totalActiveSeconds: totalActiveSeconds,
+        avgAttention,
+        avgFace,
+        avgGaze,
+        totalActiveSeconds,
         firstJoinTime: participant.currentJoinTime,
         lastLeaveTime: meetingEndTime
       }
-      await meetingService.createMeetingParticipant(meetingSession)
+
+      try {
+        await meetingService.createMeetingParticipant(meetingSession)
+      } catch (createErr) {
+        // Record already exists — update it instead
+        console.log(`Participant ${userId} already exists for meeting ${meetingId}, updating...`)
+        
+      }
     }
+
     endMeeting(meetingId)
     return res.status(200).json({
       ok: true,
